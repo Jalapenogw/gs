@@ -441,6 +441,29 @@
   .side-panel.special-panel .label{color:var(--special);}
 
   /* ============ INLINE CAST REFERENCES ============ */
+  /* --- Reader features --- */
+  .chapter-stepper{position:sticky; top:var(--nav-h, 58px); z-index:55; background:#0a0a0aee; border-bottom:1px solid #262626; backdrop-filter:blur(6px);}
+  .stepper-inner{max-width:1300px; margin:0 auto; padding:8px 24px; display:flex; align-items:center; justify-content:space-between; gap:14px;}
+  .step-btn{background:var(--ink3); border:1px solid var(--line); color:var(--parchment); padding:7px 14px; border-radius:999px; font-family:'Noto Serif', serif; font-size:13px; cursor:pointer; flex:0 0 auto; transition:border-color .2s, opacity .2s;}
+  .step-btn:hover{border-color:var(--accent2);}
+  .step-btn[disabled]{opacity:.35; cursor:default;}
+  .step-btn[disabled]:hover{border-color:var(--line);}
+  .step-label{font-family:'Cormorant Garamond', serif; font-style:italic; font-size:15px; color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; flex:1 1 auto;}
+  .step-label b{color:var(--parchment-dim); font-weight:600;}
+  body.light-mode .chapter-stepper{background:#faf6eeee; border-bottom-color:#ddd0b5;}
+  @media (max-width:640px){ .step-word{display:none;} .stepper-inner{padding:8px 14px;} }
+  .tab-ref{display:inline; background:none; border:none; padding:0; margin:0; font:inherit; cursor:pointer; color:var(--accent2); border-bottom:1px solid var(--accent2-dim); transition:border-color .2s;}
+  .tab-ref:hover{border-bottom-color:var(--accent2);}
+  .toggle-tail{display:flex; gap:12px; align-items:center; flex:0 0 auto; margin-top:2px;}
+  .read-toggle{width:24px; height:24px; border-radius:50%; border:1.5px solid var(--line); background:transparent; color:transparent; font-size:13px; line-height:1; display:inline-flex; align-items:center; justify-content:center; transition:border-color .2s, background .2s, color .2s;}
+  .read-toggle:hover{border-color:var(--accent2);}
+  .chapter-card.read .read-toggle{background:var(--accent2); border-color:var(--accent2); color:var(--ink);}
+  .chapter-card.read .chapter-toggle h3{color:var(--parchment-dim);}
+  .chapter-card.read .chapter-toggle .num{opacity:.6;}
+  .progress-pill{border-style:dashed; cursor:default;}
+  .progress-pill b{color:var(--accent2);}
+  .journey-nav{display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-top:30px;}
+  .journey-nav .pill-btn b{color:var(--accent2);}
   .cast-ref{
     display:inline; background:none; border:none; padding:0; margin:0;
     font:inherit; color:inherit; cursor:pointer;
@@ -530,6 +553,14 @@
         <div class="mt-line"></div>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="chapter-stepper" id="chapterStepper">
+  <div class="stepper-inner">
+    <button type="button" class="step-btn" id="stepPrev" aria-label="Previous expansion">◀<span class="step-word">&nbsp;Previous</span></button>
+    <span class="step-label" id="stepLabel"></span>
+    <button type="button" class="step-btn" id="stepNext" aria-label="Next expansion"><span class="step-word">Next&nbsp;</span>▶</button>
   </div>
 </div>
 
@@ -1690,6 +1721,38 @@ function linkifyCastNames(text, index){
   });
 }
 
+const TAB_REFS = [
+  ['Eye of the North','eotn'],['Secrets of the Obscure','soto'],['End of Dragons','eod'],
+  ['Heart of Thorns','hot'],['Path of Fire','pof'],['Icebrood Saga','ibs'],['Janthir Wilds','jw'],
+  ['GW2 Core','gw2'],['Guild Wars 2','gw2'],['Prophecies','gw1'],['Factions','fact'],
+  ['Nightfall','nf'],['Beyond','beyond'],
+  ['LW Season 1','lws1'],['LW Season 2','lws2'],['LW Season 3','lws3'],['LW Season 4','lws4'],
+];
+const TAB_REF_MAP = new Map(TAB_REFS);
+const TAB_REF_RE = new RegExp('\\b(' + TAB_REFS.map(x=>x[0].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\b(?=[^<>.!?]{0,40}\\btabs?\\b)(?![^<]*>)','g');
+function linkifyTabRefs(html){
+  if(html == null) return html;
+  return String(html).replace(TAB_REF_RE, (name)=>{
+    const target = TAB_REF_MAP.get(name);
+    if(!target || !document.getElementById('view-'+target)) return name;
+    return `<button type="button" class="tab-ref" data-go="${target}" title="Jump to the ${name} tab">${name}</button>`;
+  });
+}
+
+// Lightweight persistence (degrades gracefully where storage is unavailable)
+const store = {
+  get(k, fallback){ try{ const v = localStorage.getItem(k); return v===null ? fallback : JSON.parse(v); }catch(e){ return fallback; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+let readState = store.get('gwsg-read', {});
+const chapterTotals = {};
+function updateProgress(p){
+  const total = chapterTotals[p] || 0;
+  const read = Object.keys(readState).filter(k=>k.indexOf(p+':')===0 && readState[k]).length;
+  const pill = document.getElementById('progress-'+p);
+  if(pill) pill.innerHTML = `<b>${read}</b>&nbsp;/&nbsp;${total} chapters read`;
+}
+
 function renderGuide(p, data){
   // p = id prefix ('eod' or 'gw1')
 
@@ -1699,7 +1762,7 @@ function renderGuide(p, data){
     const gEl = el('div','cast-group');
     gEl.appendChild(el('h4',null,g.group));
     g.people.forEach(person=>{
-      gEl.appendChild(el('div','cast-person', `<b>${person.n}</b><p>${person.d}</p>`));
+      gEl.appendChild(el('div','cast-person', `<b>${person.n}</b><p>${linkifyTabRefs(person.d)}</p>`));
     });
     castRoot.appendChild(gEl);
   });
@@ -1719,7 +1782,7 @@ function renderGuide(p, data){
     const block = el('div','act-block');
     const head = el('div','act-head');
     head.appendChild(el('div','act-node', act.roman));
-    head.innerHTML += `<div class="eyebrow">Act ${act.roman}</div><h2 class="display">${act.title}</h2><p>${act.blurb}</p>`;
+    head.innerHTML += `<div class="eyebrow">Act ${act.roman}</div><h2 class="display">${act.title}</h2><p>${linkifyTabRefs(act.blurb)}</p>`;
     block.appendChild(head);
 
     act.chapters.forEach((ch, ci)=>{
@@ -1728,12 +1791,25 @@ function renderGuide(p, data){
       const card = el('div','chapter-card'+(ch.openworld?' openworld':''));
 
       const toggle = el('button','chapter-toggle');
-      toggle.innerHTML = `<div><span class="num">${ch.tag}</span><h3>${ch.name}</h3><div class="quest">${ch.quest}</div></div><span class="chev">+</span>`;
+      toggle.innerHTML = `<div><span class="num">${ch.tag}</span><h3>${ch.name}</h3><div class="quest">${ch.quest}</div></div><span class="toggle-tail"><span class="read-toggle" role="button" tabindex="0" aria-label="Mark chapter as read" title="Mark as read">✓</span><span class="chev">+</span></span>`;
       toggle.addEventListener('click', ()=> card.classList.toggle('open'));
+      const chapterKey = `${p}:${ai}:${ci}`;
+      chapterTotals[p] = (chapterTotals[p] || 0) + 1;
+      if(readState[chapterKey]) card.classList.add('read');
+      const readBtn = toggle.querySelector('.read-toggle');
+      const toggleRead = (e)=>{
+        e.stopPropagation(); e.preventDefault();
+        readState[chapterKey] = !readState[chapterKey];
+        card.classList.toggle('read', !!readState[chapterKey]);
+        store.set('gwsg-read', readState);
+        updateProgress(p);
+      };
+      readBtn.addEventListener('click', toggleRead);
+      readBtn.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') toggleRead(e); });
 
       const body = el('div','chapter-body');
       const inner = el('div','chapter-body-inner');
-      linkifyCastNames(ch.synopsis, castIndex).split('\n\n').forEach(part=>{
+      linkifyTabRefs(linkifyCastNames(ch.synopsis, castIndex)).split('\n\n').forEach(part=>{
         inner.appendChild(el('p',null, part));
       });
 
@@ -1747,7 +1823,7 @@ function renderGuide(p, data){
             panelEl.classList.toggle('show');
           });
           chipRow.appendChild(chip);
-          const panel = el('div','side-panel'+(s.type==='special'?' special-panel':''), `<span class="label">${s.type==='special'?'Deeper thread':'Also happening'}</span>${s.text}`);
+          const panel = el('div','side-panel'+(s.type==='special'?' special-panel':''), `<span class="label">${s.type==='special'?'Deeper thread':'Also happening'}</span>${linkifyTabRefs(s.text)}`);
           panel.id = panelId;
           inner.appendChild(chipRow);
           inner.appendChild(panel);
@@ -1767,8 +1843,56 @@ function renderGuide(p, data){
   // Epilogue
   const epiList = document.getElementById('epiList-'+p);
   data.epilogue.forEach(e=>{
-    epiList.appendChild(el('div','epi-item', `<div class="epi-num">${e.num}</div><h4>${e.name}</h4><p>${e.body}</p>`));
+    epiList.appendChild(el('div','epi-item', `<div class="epi-num">${e.num}</div><h4>${e.name}</h4><p>${linkifyTabRefs(e.body)}</p>`));
   });
+
+  // Reader toolbar additions: progress + expand-all
+  const bar = document.getElementById('view-'+p).querySelector('.toolbar');
+  if(bar){
+    const prog = el('span','pill-btn progress-pill');
+    prog.id = 'progress-'+p;
+    bar.appendChild(prog);
+    const exp = el('button','pill-btn');
+    exp.type = 'button';
+    exp.textContent = 'Expand all chapters';
+    exp.addEventListener('click', ()=>{
+      const cards = document.getElementById('view-'+p).querySelectorAll('.chapter-card');
+      const anyClosed = [...cards].some(c=>!c.classList.contains('open'));
+      cards.forEach(c=>c.classList.toggle('open', anyClosed));
+      exp.textContent = anyClosed ? 'Collapse all chapters' : 'Expand all chapters';
+    });
+    bar.appendChild(exp);
+  }
+
+  // Journey nav: continue the timeline from the epilogue
+  const order = timelineMeta.map(x=>x.id);
+  const idx = order.indexOf(p);
+  if(idx !== -1){
+    const nav = el('div','journey-nav');
+    if(idx > 0){
+      const prev = timelineMeta[idx-1];
+      const b = el('button','pill-btn', `← Back:&nbsp;<b>${prev.label}</b>`);
+      b.type='button';
+      b.addEventListener('click', ()=> switchView(prev.id));
+      nav.appendChild(b);
+    } else {
+      nav.appendChild(el('span',''));
+    }
+    if(idx < order.length-1){
+      const next = timelineMeta[idx+1];
+      const b = el('button','pill-btn', `Continue the timeline:&nbsp;<b>${next.label}</b>&nbsp;· ${next.years} →`);
+      b.type='button';
+      b.addEventListener('click', ()=> switchView(next.id));
+      nav.appendChild(b);
+    } else {
+      const b = el('button','pill-btn', `↺ Start over:&nbsp;<b>Prophecies</b>`);
+      b.type='button';
+      b.addEventListener('click', ()=> switchView('gw1'));
+      nav.appendChild(b);
+    }
+    epiList.parentElement.appendChild(nav);
+  }
+  updateProgress(p);
 }
 
 /* ======================================================================
@@ -1777,7 +1901,7 @@ function renderGuide(p, data){
 function openModal(p, loc){
   document.getElementById('modalTag-'+p).textContent = loc.tag;
   document.getElementById('modalTitle-'+p).textContent = loc.name;
-  document.getElementById('modalBody-'+p).textContent = loc.body;
+  document.getElementById('modalBody-'+p).innerHTML = linkifyTabRefs(loc.body);
   document.querySelector(`[data-modal-backdrop="${p}"]`).classList.add('open');
 }
 function closeModal(p){
@@ -1918,7 +2042,7 @@ function openCastPopover(refEl){
   const pop = el('div','cast-popover',
     `<button type="button" class="cast-popover-close" aria-label="Close">✕</button>
      <h4>${refEl.getAttribute('data-cast-name')}</h4>
-     <p>${refEl.getAttribute('data-cast-desc')}</p>`);
+     <p>${linkifyTabRefs(refEl.getAttribute('data-cast-desc'))}</p>`);
   viewEl.appendChild(pop);
 
   const rect = refEl.getBoundingClientRect();
@@ -1957,10 +2081,19 @@ themeToggleBtn.addEventListener('click', ()=>{
   const isLight = document.body.classList.toggle('light-mode');
   themeToggleBtn.setAttribute('aria-pressed', isLight ? 'true' : 'false');
   themeToggleBtn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  store.set('gwsg-theme', isLight ? 'light' : 'dark');
 });
+if(store.get('gwsg-theme', null) === 'light'){
+  document.body.classList.add('light-mode');
+  themeToggleBtn.setAttribute('aria-pressed','true');
+  themeToggleBtn.title = 'Switch to dark mode';
+}
 
+let currentView = 'gw1';
 function switchView(target){
   closeCastPopover();
+  store.set('gwsg-view', target);
+  currentView = target;
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active', t.getAttribute('data-target')===target));
   document.querySelectorAll('.mt-dot').forEach(d=>d.classList.toggle('active', d.getAttribute('data-target')===target));
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -1971,11 +2104,60 @@ function switchView(target){
   if(activeDot && activeDot.scrollIntoView) activeDot.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
   const activeTab = document.querySelector('.nav-tab.active');
   if(activeTab && activeTab.scrollIntoView) activeTab.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+  if(typeof updateStepLabel === 'function') updateStepLabel();
 }
 
 // Nav switching
 document.querySelectorAll('.nav-tab').forEach(tab=>{
   tab.addEventListener('click', ()=> switchView(tab.getAttribute('data-target')));
+});
+// Expansion stepper: move between eras from the bar under the timeline
+const stepperEl = document.getElementById('chapterStepper');
+const stepPrevBtn = document.getElementById('stepPrev');
+const stepNextBtn = document.getElementById('stepNext');
+const stepLabelEl = document.getElementById('stepLabel');
+
+function setNavHeightVar(){
+  const nav = document.querySelector('.top-nav');
+  if(nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+}
+setNavHeightVar();
+window.addEventListener('resize', setNavHeightVar);
+
+function updateStepLabel(){
+  const idx = timelineMeta.findIndex(x=>x.id === currentView);
+  if(idx === -1){ stepLabelEl.textContent=''; return; }
+  const cur = timelineMeta[idx];
+  stepLabelEl.innerHTML = `<b>${cur.label}</b>&nbsp; · &nbsp;${cur.years}&nbsp; · &nbsp;${idx+1} / ${timelineMeta.length}`;
+  const prev = timelineMeta[idx-1];
+  const next = timelineMeta[idx+1];
+  stepPrevBtn.disabled = !prev;
+  stepNextBtn.disabled = !next;
+  stepPrevBtn.innerHTML = prev ? `◀<span class="step-word">&nbsp;${prev.label}</span>` : '◀';
+  stepNextBtn.innerHTML = next ? `<span class="step-word">${next.label}&nbsp;</span>▶` : '▶';
+  stepPrevBtn.title = prev ? `Back to ${prev.label}` : '';
+  stepNextBtn.title = next ? `Continue to ${next.label}` : '';
+}
+stepPrevBtn.addEventListener('click', ()=>{
+  const idx = timelineMeta.findIndex(x=>x.id === currentView);
+  if(idx > 0) switchView(timelineMeta[idx-1].id);
+});
+stepNextBtn.addEventListener('click', ()=>{
+  const idx = timelineMeta.findIndex(x=>x.id === currentView);
+  if(idx !== -1 && idx < timelineMeta.length-1) switchView(timelineMeta[idx+1].id);
+});
+updateStepLabel();
+
+// Inline tab references anywhere in prose
+document.addEventListener('click', (e)=>{
+  const ref = e.target.closest ? e.target.closest('.tab-ref') : null;
+  if(ref){
+    const modal = ref.closest('[data-modal-backdrop]');
+    if(modal) closeModal(modal.getAttribute('data-modal-backdrop'));
+    const drawer = ref.closest('[data-drawer]');
+    if(drawer){ closeDrawer(drawer.getAttribute('data-drawer')); }
+    switchView(ref.getAttribute('data-go'));
+  }
 });
 document.querySelectorAll('.mt-dot').forEach(dot=>{
   dot.addEventListener('click', ()=> switchView(dot.getAttribute('data-target')));
@@ -2126,6 +2308,7 @@ cast: [
   ]},
   {group:"The Shining Blade", people:[
     {n:"Evennia", d:"Leader of the Shining Blade, an underground rebellion fighting the White Mantle's rule of Kryta — and determined to expose what really happens to the 'Chosen.'"},
+    {n:"Saidra", d:"Evennia's right hand — fierce, practical, and the one who takes the jobs nobody else can afford to be caught doing."},
     {n:"Dinas", d:"A Shining Blade agent working undercover inside the White Mantle, feeding intelligence back to the rebellion at real personal risk."},
   ]},
   {group:"Desert, Dwarves & Dragon", people:[
@@ -2154,12 +2337,12 @@ acts: [
 {
   roman:"I", title:"A Kingdom in Despair", blurb:"Ascalon burns, a prince defies his father, and a peaceful tutorial zone becomes a memory of a country that no longer exists.",
   chapters:[
-    {tag:"Prologue", name:"Pre-Searing Ascalon", quest:"Learn the ropes and choose a second profession while Ascalon still stands.", synopsis:"Before anything goes wrong, this is a training ground: pick a secondary profession, run early quests, and get comfortable in a version of Ascalon that's still green, still calm, and still whole.\n\nIt won't last, once you answer King Adelbern's call to the front gate, there's no going back. Take your time here, too — this is the only stretch of the entire franchise players can never return to, and later games treat this small green valley as sacred, lost ground.",
+    {tag:"Prologue", name:"Pre-Searing Ascalon", quest:"Learn the ropes and choose a second profession while Ascalon still stands.", synopsis:"Before anything goes wrong, this is a training ground: pick a secondary profession, run early quests, and get comfortable in a version of Ascalon that's still green, still calm, and still whole.\n\nIt won't last: once you answer King Adelbern's call to the front gate, there's no going back. Take your time here, too — this is the only stretch of the entire franchise players can never return to, and later games treat this small green valley as sacred, lost ground.",
       sides:[{label:"Devona, Mhenlo, Cynn & Aidan", type:"plot", text:"The handful of NPCs who quest alongside you here — Devona, Mhenlo, Cynn, Aidan, and a few others — aren't just tutorial dressing. Several of them can be recruited as permanent henchmen later, and their fates after the Searing become small, findable side-stories of their own."}]},
-    {tag:"Ch. 1", name:"Great Northern Wall", quest:"Discover just how large the Charr army massing beyond the Wall really is.", synopsis:"The Searing — a magical catastrophe conjured by the Charr — has already rained fire and crystal across Ascalon by the time this mission opens. It wasn't just Charr sorcery: their shamans channeled power borrowed from the Titans, ancient and monstrous beings normally sealed away, to burn off Ascalon's protective wards in a single stroke. Adelbern still believes the Great Northern Wall can hold.\n\nIt can't: the Charr force gathered beyond it is far larger than anyone prepared for, and a retreat to Fort Ranik becomes the only option.",
+    {tag:"Ch. 1", name:"Great Northern Wall", quest:"Discover just how large the Charr army massing beyond the Wall really is.", synopsis:"The Searing — a magical catastrophe conjured by the Charr's shaman caste — has already rained fire and burning crystal across Ascalon by the time this mission opens, shattering its proud cities in a single night. Adelbern still believes the Great Northern Wall can hold.\n\nIt can't: the Charr force gathered beyond it is far larger than anyone prepared for, and a retreat to Fort Ranik becomes the only option.",
       sides:[{label:"Adelbern vs. Rurik", type:"plot", text:"This is where the father-son rift starts: Adelbern trusts the Wall and tradition, Rurik wants to take the fight to the Charr directly. Neither one is fully right, and it costs them both eventually."},
-             {label:"The Titans, borrowed power", type:"special", text:"Nobody in Ascalon knows it yet, but the Charr didn't summon this power alone — the Titans have their own reasons for wanting it loose in the world, and those reasons don't end with Ascalon."}]},
-    {tag:"Ch. 2", name:"Fort Ranik", quest:"Push back the Charr assault on the fort.", synopsis:"Ascalon's battered forces fall back to Fort Ranik, one of the last strongholds between the Charr and the interior, and this time the defense holds: siege engines are repaired under fire, the breaches are plugged, and the Charr assault is thrown back in Ascalon's first real victory since the Searing.\n\nIt doesn't stay clean — in the fighting and the retreat that preceded it, the Charr drag off a number of human prisoners, soldiers and civilians alike, and nobody in Rurik's camp is prepared to simply write them off. The next mission exists because of exactly that.", sides:[]},
+             {label:"The Titans, borrowed power", type:"special", text:"The Charr didn't work the Searing alone: their shamans channeled power borrowed from the Titans, ancient beings with their own reasons for wanting that power loose in the world. Nobody in Ascalon knows it yet — and those reasons don't end with Ascalon."}]},
+    {tag:"Ch. 2", name:"Fort Ranik", quest:"Push back the Charr assault on the fort.", synopsis:"Rurik is done defending: from Fort Ranik, Ascalon's forces counterattack to retake the breached Great Northern Wall, repairing wrecked trebuchets under fire and turning the Charr's own siege tactics back on their makers. It is Ascalon's first real victory since the Searing.\n\nIt doesn't stay clean — during their retreat, the Charr drag off prisoners, wounded soldiers among them, and nobody in Rurik's camp is prepared to simply write them off. The next mission exists because of exactly that.", sides:[]},
     {tag:"Ch. 3", name:"Ruins of Surmia", quest:"Free the captives the Charr took during the retreat.", synopsis:"Unwilling to leave Ascalonians in Charr hands, Prince Rurik leads a rescue through the ruined town of Surmia, once one of Ascalon's proudest settlements, now reduced to rubble in the opening minutes of the Searing.\n\nWhile freeing the prisoners, he finds the mouthpiece to Stormcaller, a legendary horn — a discovery that becomes very relevant one mission later.", sides:[]},
     {tag:"Ch. 4", name:"Nolani Academy", quest:"Save the town of Rin from a Charr army already inside the walls.", synopsis:"Racing back toward the capital, Rurik and the party find the town of Rin already burning under a Charr assault. Stormcaller's magic turns the tide and saves the city, a rare clean win, right before things get much worse politically.\n\nIt's also where Rurik's habit of winning battles his father never ordered stops being a military asset and becomes a political problem — the argument that follows this victory reshapes the rest of the act.",
       sides:[{label:"Banished", type:"plot", text:"Flush with the win, Rurik pushes his father to accept Kryta's offer of shelter for Ascalon's refugees. Adelbern refuses to cooperate with outsiders and banishes his own son on the spot — the fracture that sends the story south for the rest of Act I."}]},
@@ -2174,8 +2357,8 @@ acts: [
     {tag:"Ch. 7", name:"Gates of Kryta", quest:"Help the White Mantle repel an undead assault on Kryta's border.", synopsis:"Arrival in Kryta means immediate trouble: an undead legion led by a figure known only as the Lich Lord is already raiding the countryside — a name that will matter a great deal more before this story is over.\n\nHelping the ruling White Mantle order beat back one such wave earns the refugees a tentative welcome and a settlement north of the capital, Lion's Arch.",
       sides:[{label:"Who are the White Mantle?", type:"plot", text:"Kryta's ruling order was founded generations ago by Saul D'Alessio, an exiled drunkard who stumbled half-dead into the Maguuma Jungle and was nursed back to health by mysterious, radiant beings he came to worship as the 'Unseen Ones.' He died a hero fighting the Charr, or so the White Mantle tell it."}]},
     {tag:"Ch. 8", name:"D'Alessio Seaboard", quest:"Rescue the White Mantle's Confessor Dorian and recover a powerful artifact.", synopsis:"Assisting a White Mantle expedition against the undead, the party saves Confessor Dorian himself from being overrun, and helps secure the Scepter of Orr, an artifact of serious power, before the undead can claim it.\n\nIt's enough to earn formal membership in the White Mantle. Saving the most powerful man in Kryta and denying the undead their prize in the same afternoon buys the Ascalonian refugees more goodwill than months of settlement-building — which is exactly why the honor that follows should have felt more suspicious than it did.", sides:[]},
-    {tag:"Ch. 9", name:"Divinity Coast", quest:"Administer the Test of the Chosen and escort the winners to their destination.", synopsis:"As newly minted White Mantle members, the party is given the honor of finding this year's 'Chosen' (people selected by a relic called the Eye of Janthir for a supposed gift of true sight) and escorting them onward.\n\nIt reads like an honor right up until the Chosen go missing immediately after. The Eye of Janthir itself — a floating, all-seeing relic — resurfaces in stories set centuries later, but here it's simply the instrument that turns ordinary villagers into the Mantle's 'honored' Chosen.",
-      sides:[{label:"The Eye of Janthir", type:"special", text:"The Eye supposedly identifies people with a rare magical gift. The White Mantle frame the selection as a scholarly honor — that framing does not survive the next two missions."}]},
+    {tag:"Ch. 9", name:"Divinity Coast", quest:"Administer the Test of the Chosen and escort the winners to their destination.", synopsis:"As newly minted White Mantle members, the party is given the honor of administering the Test of the Chosen — letting the floating relic called the Eye of Janthir single out villagers with a rare gift of true sight — and escorting the selected onward.\n\nIt reads like an honor right up until the Chosen go missing immediately after. The Eye itself outlives everyone in this story: it resurfaces centuries later, all the way into this site's Janthir Wilds tab.",
+      sides:[{label:"The Eye of Janthir", type:"special", text:"The White Mantle frame the selection as a scholarly honor, an old and beloved tradition in Kryta's villages. That framing does not survive the next two missions."}]},
     {tag:"Ch. 10", name:"The Wilds", quest:"Track the 'kidnappers' who took the Chosen into the Maguuma Jungle.", synopsis:"The White Mantle send the party after the rebel group that took the Chosen, called the Shining Blade. Catching up to them means crossing the deep jungle's hidden vine-bridge network, past territorial centaurs who want no visitors of any kind.\n\nWhen the party finally arrives, it gets a very different story: the Shining Blade insist they didn't kidnap the Chosen — they rescued them, and the White Mantle's official account falls apart under the first real questioning.", sides:[]},
     {tag:"Ch. 11", name:"Bloodstone Fen", quest:"Find proof of what the White Mantle actually do to the Chosen.", synopsis:"The proof is worse than expected: the White Mantle ritually murder the Chosen atop an ancient artifact here, the Maguuma Bloodstone, to serve mysterious masters called the Unseen Ones.\n\nNobody in the party has any idea yet why; it's just presented as a monstrous act of fanaticism. The party kills the Justiciar responsible, Hablion, on the spot, and becomes a wanted traitor to the order they'd just joined.",
       sides:[{label:"The Unseen Ones", type:"special", text:"Nobody in Kryta actually knows who the Unseen Ones are yet — just that the White Mantle answer to them, and that they wanted the Chosen dead. That mystery doesn't resolve until Act III."},
@@ -2183,19 +2366,19 @@ acts: [
     {tag:"Ch. 12", name:"Aurora Glade", quest:"Reach the ancient Henge of Denravi before the White Mantle do.", synopsis:"Now hunted alongside the Shining Blade, the party races the White Mantle to activate a portal into the ancient Henge of Denravi, meant to serve as the rebellion's fortified base. Worse, it's becoming clear someone inside the Shining Blade has been feeding their plans to the enemy.\n\nWinning the race means holding the Glade's attunement points against wave after wave of Mantle reinforcements while the portal charges, and the prize is a fortified sanctuary the Mantle can't easily follow them into. The leak, unfortunately, comes with them.", sides:[]},
     {tag:"Ch. 13", name:"Riverside Province", quest:"Recover the Scepter of Orr for a new ally, Vizier Khilbron.", synopsis:"Shining Blade leader Evennia secures a powerful new ally in Vizier Khilbron, who offers help fighting the White Mantle in exchange for the Scepter of Orr. An undercover Shining Blade informant, Dinas, helps the party retrieve it from Mantle hands.\n\nThe catch: the Scepter sits under heavy guard in White Mantle territory, and the party has to slip past patrol lines and watchtowers in a rare stealth-flavored mission where being spotted brings the whole province down on them. It works, barely, and a handoff to Khilbron is arranged at Sanctum Cay.",
       sides:[{label:"Where did Khilbron come from?", type:"special", text:"He shows up with startling power and a very specific interest in one particular artifact from a kingdom that sank beneath the sea generations ago. Evennia never quite explains where she found him, or why he trusts her so completely."}]},
-    {tag:"Ch. 14", name:"Sanctum Cay", quest:"Deliver the Scepter to Khilbron and escape with him intact.", synopsis:"The handoff succeeds, but at a cost: the White Mantle ambush the operation, and it becomes clear the informant leak was never Dinas — it was Markis, a member of the Shining Blade's own inner council. The rebellion is scattered, though the Scepter makes it to Khilbron.\n\nKhilbron departs across the sea with the artifact he wanted from the start, Evennia is taken in the fighting, and the survivors are left with his parting advice: only Ascension, out in the Crystal Desert, can make them strong enough to face the Mantle's true masters.",
-      sides:[{label:"End of Act II", type:"plot", text:"Markis's betrayal is the second big rug-pull of the story, and it's the reason the party heads for the Crystal Desert next — Khilbron argues only Ascension can make them strong enough to face the Mantle's true masters."}]},
+    {tag:"Ch. 14", name:"Sanctum Cay", quest:"Deliver the Scepter to Khilbron and escape with him intact.", synopsis:"The handoff succeeds, but at a cost: the White Mantle ambush the operation, and it becomes clear the informant leak was never Dinas — it was Markis, a member of the Shining Blade's own inner council. Evennia is taken in the fighting, and the rebellion is scattered.\n\nKhilbron summons a ship crewed by the obedient dead and carries the survivors away himself, artifact in hand, with some parting advice: only Ascension, out in the Crystal Desert, can make them strong enough to face the Mantle's true masters.",
+      sides:[{label:"End of Act II", type:"plot", text:"Markis's betrayal is the second big rug-pull of the story — and it's worth noticing, later, how completely Khilbron controlled the aftermath: the rebellion's newest friend, pointing its last survivors exactly where he needed them to go."}]},
   ]
 },
 {
   roman:"III", title:"Ascension", blurb:"A pause in the war: an empty desert, the ghosts of a forgotten people, and trials meant to earn the attention of the gods themselves.",
   chapters:[
-    {tag:"Ch. 15", name:"Dunes of Despair", quest:"Take the Throne of Pellentia and claim the Temple of Ascension.", synopsis:"The ghost of Turai Ossa, an ancient Elonian ruler, appears to guide the party through Ascension, trials originally built for his own people, in another age. The first test is a siege in reverse: seize the Temple of Ascension, plant the ghostly banner of his old kingdom, and hold the temple against waves of Forgotten defenders until the rite completes.\n\nIt's fought over ruins nobody living has claimed in centuries, and it quietly shifts the campaign's stakes — from surviving the White Mantle to earning the attention of the gods themselves.",
+    {tag:"Ch. 15", name:"Dunes of Despair", quest:"Take the Throne of Pellentia and claim the Temple of Ascension.", synopsis:"The ghost of Turai Ossa, an ancient Elonian ruler, appears to guide the party through Ascension, trials originally built for his own people, in another age. The first test is a siege in reverse: seize the Temple of Ascension, cast down the usurper spirit squatting on the Throne of Pellentia, and hold the temple against waves of Forgotten defenders until Turai's rite completes.\n\nIt's fought over ruins nobody living has claimed in centuries, and it quietly shifts the campaign's stakes — from surviving the White Mantle to earning the attention of the gods themselves.",
       sides:[{label:"Turai Ossa's tragedy", type:"plot", text:"Centuries ago, Turai was a celebrated Elonian champion who gave up his throne, certain his people were the 'Chosen' foretold in an old prophecy. He led them into this desert to prove it, and every one of them died here without ever learning they'd guessed wrong. He's been waiting as a ghost ever since, hoping to finally see the real Chosen arrive."}]},
     {tag:"Ch. 16", name:"Thirsty River", quest:"Defeat six teams of Forgotten to prove yourself worthy.", synopsis:"The second trial runs on the Forgotten's terms: the desert's serpent-like custodians hold an ancient arena in six separate teams, each anchored by a ghostly priest, and all six must be broken before the trial counts. The fight keeps resetting against the party in timed waves, which is the point — Turai Ossa frames it as a test of resolve rather than raw strength.\n\nIt's also the party's first real contact with the Forgotten themselves, guardians left behind by the gods, who have been waiting centuries for anyone worth testing.", sides:[]},
-    {tag:"Ch. 17", name:"Elona Reach", quest:"Gather the Vision Crystal to draw the gods' attention.", synopsis:"The third trial is a scavenger hunt among ghosts: the Vision Crystal that can focus the gods' gaze lies shattered, its three fragments scattered across a dune sea patrolled by hostile spirits. Turai Ossa's own doomed followers linger here — some helpful, some too far gone to tell the living from the enemy — as the party races to recover every shard and reassemble the crystal at the ancient focusing site.\n\nIt's preparation rather than glory: with the crystal whole, exactly one test remains between the party and Ascension itself.", sides:[]},
+    {tag:"Ch. 17", name:"Elona Reach", quest:"Gather the Vision Crystal to draw the gods' attention.", synopsis:"The third trial is a scavenger hunt among ghosts: the Vision Crystal that can focus the gods' gaze lies shattered, its fragments scattered across a dune sea patrolled by hostile spirits. Turai Ossa's own doomed followers linger here — some helpful, some too far gone to tell the living from the enemy — as the party races to recover every shard and reassemble the crystal at the ancient focusing site.\n\nIt's preparation rather than glory: with the crystal whole, exactly one test remains between the party and Ascension itself.", sides:[]},
     {tag:"Ch. 18", name:"Augury Rock", quest:"Face your own Doppelganger — the last test of Ascension.", synopsis:"Ascension's last test strips everything else away. At Augury Rock, the gods answer the Vision Crystal by conjuring a Doppelganger, an exact magical duplicate of the player, armed with every skill and instinct they brought to the fight.\n\nThere's no army to hide behind and no henchman to lean on; out-thinking yourself is the entire exam. Victory earns true Ascension and, more practically, the ability to finally perceive the Mursaat — the 'Unseen Ones' who have been invisible to mortal eyes for the whole campaign.", sides:[]},
-    {tag:"Ch. 19", name:"The Dragon's Lair", quest:"Earn an audience with the dragon prophet Glint.", synopsis:"Newly Ascended, the party fights through several facets of the ancient dragon Glint before finally speaking with her directly.\n\nShe reveals the Flameseeker Prophecies she compiled centuries ago, exposes Markis's betrayal for what it was, and — the piece everyone's been missing — names the White Mantle's Unseen Ones as the Mursaat, an ancient race of spellcasters. She sends the party south to find what's left of the Shining Blade.",
+    {tag:"Ch. 19", name:"The Dragon's Lair", quest:"Earn an audience with the dragon prophet Glint.", synopsis:"Newly Ascended, the party fights through several facets of the ancient dragon Glint before finally speaking with her directly.\n\nShe reveals the Flameseeker Prophecies she compiled centuries ago and — the piece everyone's been missing — names the White Mantle's Unseen Ones as the Mursaat, an ancient race of spellcasters culling the Chosen to keep an old prophecy from ever coming true. She sends the party south to find what's left of the Shining Blade.",
       sides:[{label:"The Mursaat, unmasked", type:"special", text:"This is the moment the whole 'Unseen Ones' mystery from Act II finally pays off, and it reframes the White Mantle as puppets rather than masterminds."},
              {label:"Not the first to get it wrong", type:"plot", text:"Turai Ossa's people weren't unique — Glint mentions other groups over the centuries who also convinced themselves they were the prophecy's subject, and also died trying to prove it. It's a quiet, sad footnote to the desert full of ghosts you've just walked through."}]},
   ]
@@ -2203,18 +2386,18 @@ acts: [
 {
   roman:"IV", title:"The Mursaat War", blurb:"Armed with a name for the enemy, the party heads into the Southern Shiverpeaks to rescue what's left of the resistance and face the Mursaat directly.",
   chapters:[
-    {tag:"Ch. 20", name:"Ice Caves of Sorrow", quest:"Rescue Evennia from White Mantle custody.", synopsis:"Word arrives that Evennia, captured in the ambush at Sanctum Cay, is being held in an ice fortress deep in the Southern Shiverpeaks. The rescue means cutting through both her White Mantle jailers and the Stone Summit territory around them, with dwarven allies lending what help they can.\n\nEvennia comes out alive, but the mission's real lesson is a first, horrifying look at Spectral Agony — the Mursaat's signature weapon — as jade constructs shrug off everything thrown at them. Nobody has any defense against it, and finding one becomes the entire next mission.",
+    {tag:"Ch. 20", name:"Ice Caves of Sorrow", quest:"Rescue Evennia from White Mantle custody.", synopsis:"Word arrives that Evennia, captured in the ambush at Sanctum Cay, is being held in an ice fortress deep in the Southern Shiverpeaks. The rescue means cutting through both her White Mantle jailers and the Stone Summit territory around them, with dwarven allies lending what help they can.\n\nEvennia comes out alive; Saidra, covering the escape at the docks, does not — the rescue is paid for in the rebellion's own blood. The mission is also a first, horrifying look at Spectral Agony, the Mursaat's signature weapon, as jade constructs shrug off everything thrown at them.",
       sides:[{label:"Spectral Agony", type:"special", text:"This ability is the reason the Mursaat have stayed functionally unbeatable for centuries. Finding a counter to it becomes the entire point of the next mission."}]},
     {tag:"Ch. 21", name:"Iron Mines of Moladune", quest:"Find the Seer and gain protection against Spectral Agony.", synopsis:"Deep in the Iron Mines, an ancient being called the Seer offers the one thing nobody else can: infusion, a ward against Spectral Agony, earned by recovering a Mursaat artifact from their ice-bound stronghold and letting the Seer work its magic into the party's armor.\n\nProperly infused, the party can finally fight the Mursaat and their jade constructs on something like even terms, and immediately proves it, cutting down a White Mantle force led by the traitor Markis. His death closes the ledger on Act II's betrayal; the war against his masters is only starting.", sides:[]},
-    {tag:"Ch. 22", name:"Thunderhead Keep", quest:"Defend the dwarven capital from both the Stone Summit and the Mursaat at once.", synopsis:"Thunderhead Keep, capital of the Deldrimor dwarves, is under a two-front assault. Fighting alongside King Jalis Ironhammer, the party drives off the Stone Summit invaders and then turns to face an incoming Mursaat force, killing Confessor Dorian himself and sending the White Mantle reeling.\n\nHolding the keep means manning its gates and bombards through the night against both armies at once, and Dorian's death on its walls breaks the White Mantle's back as an independent threat for good.",
+    {tag:"Ch. 22", name:"Thunderhead Keep", quest:"Defend the dwarven capital from both the Stone Summit and the Mursaat at once.", synopsis:"Thunderhead Keep, capital of the Deldrimor dwarves, has fallen to the Stone Summit. Fighting beside King Jalis Ironhammer, the party retakes the city and its fort — killing the Summit champion Dagnar Stonepate, the same dwarf who cut down Prince Rurik at the Frost Gate.\n\nThen the real siege begins: Mursaat and White Mantle forces assault the recaptured keep through the night, manning of gates and bombards and all, until Confessor Dorian himself lies dead on its walls.",
       sides:[{label:"End of Act IV", type:"plot", text:"Dorian's death effectively ends the White Mantle as a threat in their own right. From here the story stops being about Kryta's politics and becomes a direct war against the Mursaat."}]},
   ]
 },
 {
   roman:"V", title:"The Door of Komalie", blurb:"One last journey, to a volcano the Mursaat have guarded for centuries, and a betrayal nobody sees coming until it's already happened.",
   chapters:[
-    {tag:"Ch. 23", name:"Ring of Fire", quest:"Push past the Mursaat's island defenses toward the volcano.", synopsis:"With dwarven ships and King Jalis's backing, the party lands on the Ring of Fire Islands, the Mursaat's home ground, ringed in lava and fortified in depth. The mission is a straight push through their island defenses toward the great volcano called Abaddon's Mouth: jade constructs, Mursaat towers, and the garrisons guarding the only viable approach.\n\nInfusion makes the fight survivable; nothing makes it easy. At the far end waits the campaign's true destination — the Door of Komalie, the seal the Mursaat have guarded for centuries, for reasons that become horribly clear one mission later.", sides:[]},
-    {tag:"Ch. 24", name:"Abaddon's Mouth", quest:"Break the seals on the Door of Komalie.", synopsis:"At the base of the volcano, the party reaches the long-sealed Door of Komalie and breaks it open, only to discover the entire campaign has been leading them toward a trap.\n\nThe door releases monstrous creatures called Titans, and Vizier Khilbron — trusted ally since Act II — reveals himself as the undead Lich Lord who's been hunting the party since Kryta, a being far older and more ancient than anyone guessed, wielding the Scepter of Orr to bend the Titans to his will.",
+    {tag:"Ch. 23", name:"Ring of Fire", quest:"Push past the Mursaat's island defenses toward the volcano.", synopsis:"Backed by a dwarven strike force under Brechnar Ironhammer, the king's own brother, the party lands on the Ring of Fire Islands: the Mursaat's home ground, ringed in lava and fortified in depth. The mission is a straight push toward the great volcano called Abaddon's Mouth: jade constructs, Mursaat towers, and the garrisons guarding the only viable approach.\n\nInfusion makes the fight survivable; nothing makes it easy. At the far end waits the campaign's true destination — the Door of Komalie, the seal the Mursaat have guarded for centuries, for reasons that become horribly clear one mission later.", sides:[]},
+    {tag:"Ch. 24", name:"Abaddon's Mouth", quest:"Break the seals on the Door of Komalie.", synopsis:"At the base of the volcano, the party reaches the long-sealed Door of Komalie and breaks it open, only to discover the entire campaign has been leading them toward a trap.\n\nThe door releases monstrous creatures called Titans, and Vizier Khilbron — trusted ally since Act II — reveals himself as the undead Lich Lord who's been hunting the party since Kryta, a being far older than anyone guessed, wielding the Scepter of Orr to bend the Titans to his will.",
       sides:[{label:"Khilbron's true history", type:"special", text:"He was never a Krytan spellcaster — centuries ago he was Vizier to the ancient kingdom of Orr, and when Charr invaders threatened to overrun it, he cast a forbidden spell that sank his own kingdom, and the army attacking it, beneath the waves. That same act is what twisted him into the undead thing he is now."},
              {label:"The third betrayal", type:"special", text:"Khilbron is the third major 'trusted ally turns traitor' beat in the story, after the Searing itself and Markis — except this one's been planned since before the party ever met him."},
              {label:"The Lich Lord, all along", type:"special", text:"That undead menace raiding Kryta's border back in Act II, Chapter 7? Same being. He'd been a threat since the party set foot in Kryta, just wearing a friendlier face."}]},
@@ -2226,9 +2409,9 @@ acts: [
 },
 ],
 epilogue: [
-  {num:"Titan Quests", name:"The Titan Source", body:"Freed from the Lich Lord, the Titans mobilize massive armies against Tyria's major cities. Aided by Glint, the party defends Droknar's Forge, Ascalon City, the Henge of Denravi, and Lion's Arch in turn, then marches into Charr-held territory to strike the Titan Source directly — defeating all three Titan lords and finally ending the threat."},
-  {num:"Bonus Dungeon", name:"Sorrow's Furnace", body:"A free post-launch addition sending the party into a Charr-occupied dwarven excavation, stopping the Stone Summit from getting their hands on a discovery dangerous enough to threaten the whole region."},
-  {num:"Seasonal Event", name:"Invasion in the Underworld", body:"A demonic army lays siege to the Tomb of the Primeval Kings, corrupting it and cutting off access to the Hall of Heroes. The party fights back through the Underworld and the Court to confront the invasion's leaders — three beings known only as the Darknesses."},
+  {num:"Titan Quests", name:"The Titan Source", body:"Freed from the Lich Lord, the Titans mobilize armies against Tyria's strongholds. Guided by a Vision of Glint, the party defends Droknar's Forge, the Henge of Denravi, the province around Lion's Arch, and finally Ascalon City itself, then marches into the Charr homelands to destroy the Titan Source directly — ending the threat at its origin."},
+  {num:"Bonus Dungeon", name:"Sorrow's Furnace", body:"A free post-launch addition: beneath Grenth's Footprint, the Stone Summit run a slave-worked excavation called Sorrow's Furnace. The party helps free the Deldrimor prisoners and wrecks the Summit's monstrous war machine, the Iron Forgeman, before it can tip the balance of the Shiverpeaks."},
+  {num:"Seasonal Event", name:"Invasion in the Underworld", body:"A demonic army lays siege to the Tomb of the Primeval Kings, corrupting it and cutting off access to the Hall of Heroes. The party fights down through the corrupted halls to confront the invasion's leaders — three beings known only as the Darknesses."},
 ]
 };
 
@@ -3659,6 +3842,13 @@ renderGuide('lws4', lws4Data);
 renderGuide('ibs', ibsData);
 renderGuide('soto', sotoData);
 renderGuide('jw', jwData);
+
+// Return the reader to where they left off
+const savedView = store.get('gwsg-view', null);
+if(savedView && savedView !== 'gw1' && document.getElementById('view-'+savedView)){
+  switchView(savedView);
+}
+updateStepLabel();
 </script>
 </body>
 </html>
